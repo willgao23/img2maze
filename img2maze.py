@@ -4,6 +4,9 @@ import numpy as np
 import sys
 import os
 import networkx as nx
+import random
+
+SIZE = 127
 
 
 def process_image(im):
@@ -15,41 +18,53 @@ def process_image(im):
     # find edges in image
     edges = cv2.Canny(im_arr, 100, 200)
     # resize image
-    resized_im = cv2.resize(edges, dsize=(127, 127), interpolation=cv2.INTER_AREA)
+    resized_im = cv2.resize(edges, dsize=(SIZE, SIZE), interpolation=cv2.INTER_AREA)
     return resized_im
 
 
 def init_graph(im):
     """
-    Helper function that creates a graph with a node (room) for every pixel and edges to indicate
-    open or traversable paths between rooms
+    Helper function that creates a graph with a node for every pixel
     """
+    global G
     G = nx.Graph()
     # add nodes and edges
     nodes_to_add = []
-    edges_to_add = []
     for i in range(im.shape[0] * im.shape[1]):
         row = i // im.shape[0]
         col = i % im.shape[1]
-        node = (i, {"row": i // im.shape[0], "col": i % im.shape[1]})
+        node = (i, {"id": i, "row": row, "col": col, "visited": False})
         nodes_to_add.append(node)
-
-        # check if pixel in original image is an edge, ignore paths to other rooms if so
-        if im[row, col] > 0:
-            continue
-
-        # handle boundary conditions
-        edge_e = (i, i + 1) if col < im.shape[1] - 1 else None
-        edge_w = (i, i - 1) if col > 0 else None
-        edge_n = (i, i - im.shape[1]) if row > 0 else None
-        edge_s = (i, i + im.shape[1]) if row < im.shape[0] - 1 else None
-        edges_to_add.extend(
-            filter(lambda a: a != None, [edge_e, edge_w, edge_n, edge_s])
-        )
-
     G.add_nodes_from(nodes_to_add)
-    G.add_edges_from(edges_to_add)
-    return
+
+
+def get_neighbours(node):
+    """
+    Helper function that returns a list of neighbours for a given node
+    """
+    neighbour_n = node["id"] - SIZE if node["row"] > 0 else None
+    neighbour_s = node["id"] + SIZE if node["row"] < SIZE - 1 else None
+    neighbour_e = node["id"] + 1 if node["col"] < SIZE - 1 else None
+    neighbour_w = node["id"] - 1 if node["col"] > 0 else None
+    return filter(
+        lambda a: a != None, [neighbour_n, neighbour_s, neighbour_e, neighbour_w]
+    )
+
+
+def generate_maze(node, im):
+    """
+    Helper function that generates a maze using DFS from the given graph
+    """
+    node["visited"] = True
+    neighbours = random.shuffle(get_neighbours(node))
+    for neighbour in neighbours:
+        neighbour_node = G.nodes[neighbour]
+        if (
+            not neighbour_node["visited"]
+            and im[neighbour_node["row"], neighbour_node["col"]] == 0
+        ):
+            G.add_edge((node["id"], neighbour_node["id"]))
+            generate_maze(neighbour_node, im)
 
 
 if __name__ == "__main__":
@@ -58,4 +73,5 @@ if __name__ == "__main__":
         sys.exit("Please imput a valid path to the image you would like to convert.")
     im = Image.open(sys.argv[1])
     processed_im = process_image(im)
-    G = init_graph(processed_im)
+    init_graph(processed_im)
+    generate_maze(G.nodes[0], im)
